@@ -1,12 +1,15 @@
-FROM node:14-alpine
+FROM node:14.17.6-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --production
+RUN apk add --no-cache nodejs npm python3 openjdk11
 
 COPY . .
+COPY ./code-execution  /app/sandbox/code-execution
+VOLUME /app/sandbox/code-execution
 
 EXPOSE 8000
 
-CMD [ "npm", "start" ]
+CMD [ "node", "index.js" ]

@@ -4,9 +4,9 @@ const port = process.env.PORT || 8000;
 const cors = require('cors');
 require('dotenv').config();
 const jwt = require('jsonwebtoken');
-const { spawn } = require("child_process");
+const { v4: uuidv4 } = require('uuid');
+const { spawn } = require('child_process');
 const fs = require('fs');
-const { v4: uuidv4 } = require("uuid")
 app.use(cors());
 app.use(express.json());
 
@@ -42,7 +42,7 @@ async function run() {
         await client.connect();
 
         const userCollection = client.db("judge0").collection("users");
-
+        const codeCollection = client.db("judge0").collection("codes");
         app.post('/registration', async (req, res) => {
             const user = req.body;
             const query = { email: user?.email };
@@ -63,12 +63,129 @@ async function run() {
         })
 
         app.post('/execute', verifyJwt, async (req, res) => {
-            const codeSnippet = req.body.code;
-            const codeLanguage = req.body.language;
+            try {
+                const { codeSnippet, language } = req.body;
+                const codeExecutionDetails = req.body;
+                let executionResult = "";
+                let errorOccurred = false;
+                const codeExecutionId = uuidv4();
+                const codeExecutionPath = `${__dirname}/code-execution/${codeExecutionId}`;
 
-            console.log(codeSnippet);
-        })
+                // Create the code execution directory
+                try {
+                    fs.mkdirSync(codeExecutionPath);
+                } catch (error) {
+                    res.status(500).json({ error: 'Failed to create code execution directory' });
+                    return;
+                }
+                console.log(codeExecutionPath);
+                let codeFilePath;
 
+                switch (language) {
+                    case 'JavaScript':
+                        codeFilePath = `${codeExecutionPath}/code.js`;
+                        break;
+                    case 'python':
+                        codeFilePath = `${codeExecutionPath}/code.py`;
+                        break;
+                    case 'c++':
+                        codeFilePath = `${codeExecutionPath}/code.cpp`;
+                        break;
+                    case 'c':
+                        codeFilePath = `${codeExecutionPath}/code.c`;
+                        break;
+                    case 'Java':
+                        codeFilePath = `${codeExecutionPath}/code.java`;
+                        break;
+                    default:
+                        res.status(422).json({ error: 'Unsupported code language' });
+                        return;
+                }
+
+                if (codeFilePath) {
+                    console.log(codeFilePath);
+                    try {
+                        fs.writeFileSync(codeFilePath, codeSnippet);
+                    } catch (error) {
+                        res.status(500).json({ error: 'Failed to write code file' });
+                        return;
+                    }
+                } else {
+                    res.status(500).json({ error: 'Code file path is not defined' });
+                    return;
+                }
+
+                let dockerCommandToExecute;
+
+                switch (language) {
+                    case 'JavaScript':
+                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:1.0 node /app/sandbox/code-execution/code.js`;
+                        break;
+                    case 'python':
+                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 python /app/sandbox/code-execution/${codeExecutionId}/code.py`;
+                        break;
+                    case 'c++':
+                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 g++ /app/sandbox/code-execution/${codeExecutionId}/code.cpp -o /app/sandbox/code-execution/${codeExecutionId}/code && /app/sandbox/code-execution/${codeExecutionId}/code`;
+                        break;
+                    case 'c':
+                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 gcc /app/sandbox/code-execution/${codeExecutionId}/code.c -o /app/sandbox/code-execution/${codeExecutionId}/code && /app/sandbox/code-execution/${codeExecutionId}/code`;
+                        break;
+                    case 'Java':
+                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 javac /app/sandbox/code-execution/${codeExecutionId}/code.java && java -cp /app/sandbox/code-execution/${codeExecutionId} code`;
+                        break;
+                    default:
+                        res.status(422).json({ error: 'Unsupported code language' });
+                        return;
+                }
+
+                console.log(dockerCommandToExecute);
+                let childProcess = spawn(dockerCommandToExecute, [], { shell: true });
+
+                let outputChunks = [];
+
+                childProcess.stdout.on('data', (data) => {
+                    outputChunks.push(data);
+                });
+
+                childProcess.stderr.on('data', (data) => {
+                    errorOccurred = true;
+                    console.error(data.toString());
+                });
+
+                childProcess.on('close', async (code) => {
+                    if (errorOccurred) {
+                        res.status(500).json({ error: 'Code execution failed' });
+                        return;
+                    }
+                    if (code === 0) {
+                        // Concatenate the output chunks
+                        const executionResult = Buffer.concat(outputChunks).toString();
+                        console.log(executionResult);
+
+                        const update = {
+                            $set: {
+                                output: executionResult,
+                            },
+                        };
+
+                        // Insert the code execution details into the database
+                        try {
+                            const result = await codeCollection.insertOne(codeExecutionDetails, update);
+                            res.send({ Output: executionResult });
+                        } catch (error) {
+                            console.error(error);
+                            res.status(500).json({ error: 'Failed to store code execution details' });
+                        }
+                    } else {
+                        console.error(executionResult);
+                        res.status(500).json({ error: 'Code execution failed' });
+                    }
+                });
+            } catch (error) {
+                console.error(error);
+                res.status(400).json({ error: error.message });
+            }
+        });
         await client.db("admin").command({ ping: 1 });
         console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
