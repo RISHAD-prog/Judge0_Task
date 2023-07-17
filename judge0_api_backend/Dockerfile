@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 RUN npm install --production
-RUN apk add --no-cache nodejs npm python3 openjdk11
+RUN apk add --no-cache nodejs npm python3 openjdk11 build-base gcc g++
 
 COPY . .
 COPY ./code-execution  /app/sandbox/code-execution

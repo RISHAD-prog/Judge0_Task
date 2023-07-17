@@ -34,7 +34,8 @@ const client = new MongoClient(uri, {
         version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
-    }
+    },
+    maxPoolSize: 20,
 });
 
 async function run() {
@@ -71,7 +72,7 @@ async function run() {
                 const codeExecutionId = uuidv4();
                 const codeExecutionPath = `${__dirname}/code-execution/${codeExecutionId}`;
 
-                // Create the code execution directory
+
                 try {
                     fs.mkdirSync(codeExecutionPath);
                 } catch (error) {
@@ -93,9 +94,6 @@ async function run() {
                         break;
                     case 'c':
                         codeFilePath = `${codeExecutionPath}/code.c`;
-                        break;
-                    case 'Java':
-                        codeFilePath = `${codeExecutionPath}/code.java`;
                         break;
                     default:
                         res.status(422).json({ error: 'Unsupported code language' });
@@ -119,19 +117,17 @@ async function run() {
 
                 switch (language) {
                     case 'JavaScript':
-                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:1.0 node /app/sandbox/code-execution/code.js`;
+                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:2.0 node /app/sandbox/code-execution/code.js`;
                         break;
                     case 'python':
-                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 python /app/sandbox/code-execution/${codeExecutionId}/code.py`;
+                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:2.0 python3 /app/sandbox/code-execution/code.py`;
                         break;
                     case 'c++':
-                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 g++ /app/sandbox/code-execution/${codeExecutionId}/code.cpp -o /app/sandbox/code-execution/${codeExecutionId}/code && /app/sandbox/code-execution/${codeExecutionId}/code`;
+                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:2.0 sh -c "g++ /app/sandbox/code-execution/code.cpp -o /app/sandbox/code-execution/code && /app/sandbox/code-execution/code"`;
+
                         break;
                     case 'c':
-                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 gcc /app/sandbox/code-execution/${codeExecutionId}/code.c -o /app/sandbox/code-execution/${codeExecutionId}/code && /app/sandbox/code-execution/${codeExecutionId}/code`;
-                        break;
-                    case 'Java':
-                        dockerCommandToExecute = `docker run --rm -v D:/Job-task/judge0_api/judge0_api_backend/code-execution/${codeExecutionId}:/app/sandbox/code-execution judge0-image:1.0 javac /app/sandbox/code-execution/${codeExecutionId}/code.java && java -cp /app/sandbox/code-execution/${codeExecutionId} code`;
+                        dockerCommandToExecute = `docker run --rm -v ${codeExecutionPath}:/app/sandbox/code-execution judge0-image:2.0 "gcc /app/sandbox/code-execution/code.c -o /app/sandbox/code-execution/code && /app/sandbox/code-execution code"`;
                         break;
                     default:
                         res.status(422).json({ error: 'Unsupported code language' });
@@ -158,7 +154,7 @@ async function run() {
                         return;
                     }
                     if (code === 0) {
-                        // Concatenate the output chunks
+
                         const executionResult = Buffer.concat(outputChunks).toString();
                         console.log(executionResult);
 
@@ -168,7 +164,6 @@ async function run() {
                             },
                         };
 
-                        // Insert the code execution details into the database
                         try {
                             const result = await codeCollection.insertOne(codeExecutionDetails, update);
                             res.send({ Output: executionResult });
